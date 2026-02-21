@@ -9,7 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from notestream.models import (
+    ChatMessage,
     NoteStyle,
+    NotesChatRequest,
+    NotesChatResponse,
     NotesGenerateRequest,
     NotesResponse,
     QuizGenerateRequest,
@@ -23,6 +26,7 @@ from notestream.services import (
     InvalidYouTubeUrlError,
     LLMServiceError,
     ServiceError,
+    ask_notes_question,
     TranscriptUnavailableError,
     generate_notes,
     generate_quiz,
@@ -158,6 +162,26 @@ async def create_quiz(payload: QuizGenerateRequest) -> QuizResponse:
         content_markdown=quiz,
         cached=context.video_cached and quiz_cached,
     )
+
+
+@app.post("/api/notes/chat", response_model=NotesChatResponse)
+async def create_notes_chat(payload: NotesChatRequest) -> NotesChatResponse:
+    try:
+        history = [ChatMessage.model_validate(item).model_dump() for item in payload.history]
+        answer = await ask_notes_question(
+            notes_markdown=payload.notes_markdown,
+            question=payload.question,
+            history=history,
+            api_key=payload.bailian_api_key,
+            model=payload.model,
+            exam_mode=payload.exam_mode,
+            exam_name=payload.exam_name,
+        )
+    except LLMServiceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ServiceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return NotesChatResponse(answer=answer)
 
 
 @app.post("/api/notes/pdf")

@@ -233,18 +233,28 @@ async def get_video_context(youtube_url: str, force_refresh: bool = False) -> Vi
 
 
 async def call_bailian(prompt: str, api_key: str, model: str | None = None) -> str:
+    messages = [
+        {
+            "role": "system",
+            "content": "You produce factual, structured study content in Markdown.",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    return await call_bailian_messages(messages=messages, api_key=api_key, model=model)
+
+
+async def call_bailian_messages(
+    *,
+    messages: list[dict[str, str]],
+    api_key: str,
+    model: str | None = None,
+) -> str:
     if not api_key:
         raise LLMServiceError("Bailian API key is required.")
 
     payload = {
         "model": model or DEFAULT_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You produce factual, structured study content in Markdown.",
-            },
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
         "temperature": 0.3,
     }
 
@@ -268,6 +278,68 @@ async def call_bailian(prompt: str, api_key: str, model: str | None = None) -> s
         return data["choices"][0]["message"]["content"].strip()
     except Exception as exc:  # noqa: BLE001
         raise LLMServiceError("Invalid response structure from Bailian API.") from exc
+
+
+async def ask_notes_question(
+    *,
+    notes_markdown: str,
+    question: str,
+    history: list[dict[str, str]],
+    api_key: str,
+    model: str | None,
+    exam_mode: bool = False,
+    exam_name: str | None = None,
+) -> str:
+    system_prompt = """
+You are an expert tutor teaching a high-school student.
+
+Goals:
+- Explain clearly, accurately, and patiently.
+- Use the provided video notes/context as your primary source.
+- You may extend beyond the video when helpful, especially to fill background knowledge, give intuition, or provide better examples.
+
+Style requirements:
+- Use simple language first, then add technical detail if needed.
+- Break explanations into small steps.
+- Define jargon the first time you use it.
+- Prefer concrete examples and analogies relevant to high-school learners.
+- Keep a supportive, professional tone.
+
+Grounding rules:
+- Do not invent claims about what the video said.
+- If something is from the notes/video, present it as "From the notes".
+- If something goes beyond the notes/video, label it as "Beyond the video".
+- If uncertain, say so clearly and provide the most likely explanation.
+
+Response format:
+1) Direct answer (1-3 sentences)
+2) Step-by-step explanation
+3) Example
+4) Quick check question for the student
+""".strip()
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+    ]
+
+    context_chunks = [f"Study notes context:\n\n{notes_markdown}"]
+    if exam_mode and exam_name:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Exam mode is enabled. Adapt explanations to the target exam or competition and "
+                    "incorporate likely syllabus scope, question styles, and scoring expectations. "
+                    "If exact official details are uncertain, state assumptions explicitly."
+                ),
+            }
+        )
+        context_chunks.append(f"Target exam or competition: {exam_name}")
+
+    messages.append({"role": "user", "content": "\n\n".join(context_chunks)})
+    messages.extend(history)
+    messages.append({"role": "user", "content": question})
+    return await call_bailian_messages(messages=messages, api_key=api_key, model=model)
 
 
 async def _get_or_generate_artifact(

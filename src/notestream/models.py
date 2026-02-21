@@ -104,6 +104,37 @@ class QuizResponse(BaseModel):
     cached: bool
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_role(self) -> "ChatMessage":
+        if self.role not in {"user", "assistant"}:
+            raise ValueError("Chat message role must be 'user' or 'assistant'.")
+        return self
+
+
+class NotesChatRequest(BaseModel):
+    bailian_api_key: str = Field(min_length=10)
+    model: str | None = None
+    notes_markdown: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    history: list[ChatMessage] = Field(default_factory=list)
+    exam_mode: bool = False
+    exam_name: str | None = None
+
+    @model_validator(mode="after")
+    def validate_exam_mode(self) -> "NotesChatRequest":
+        if self.exam_mode and not (self.exam_name and self.exam_name.strip()):
+            raise ValueError("When exam_mode is enabled, exam_name is required.")
+        return self
+
+
+class NotesChatResponse(BaseModel):
+    answer: str
+
+
 class ErrorResponse(BaseModel):
     detail: str
 
